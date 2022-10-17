@@ -4,6 +4,7 @@
 import typing as ty
 
 import numpy.typing as npt
+import numpy as np
 from lava.lib.optimization.problems.problems import OptimizationProblem
 from lava.lib.optimization.solvers.generic.builder import SolverProcessBuilder
 from lava.lib.optimization.solvers.generic.hierarchical_processes import \
@@ -86,6 +87,19 @@ class OptimizationSolver:
         self._process_builder = SolverProcessBuilder()
         self.solver_process = None
         self.solver_model = None
+        shape = (problem.num_variables,)
+        self._hyperparameters = dict(step_size=10,
+                                     steps_to_fire=10,
+                                     noise_amplitude=1,
+                                     init_value=np.zeros(shape),
+                                     init_state=np.zeros(shape))
+        self._report = dict(solved=None,
+                            best_state=None,
+                            cost=None,
+                            target_cost=None,
+                            steps_to_solution=None,
+                            time_to_solution=None,
+                            power_to_solution=None)
 
     @property
     def run_cfg(self):
@@ -95,6 +109,19 @@ class OptimizationSolver:
     @run_cfg.setter
     def run_cfg(self, value):
         self._run_cfg = value
+
+    @property
+    def hyperparameters(self):
+        return self._hyperparameters
+
+    @hyperparameters.setter
+    def hyperparameters(self,
+                        value: ty.Dict[str, ty.Union[int, npt.ArrayLike]]):
+        self._hyperparameters = value
+
+    @property
+    def last_run_report(self):
+        return self._report
 
     def solve(self,
               timeout: int,
@@ -125,42 +152,40 @@ class OptimizationSolver:
         solution: candidate solution to the input optimization problem.
 
         """
-        run_cfg = None
+        target_cost = self._validated_cost(target_cost)
+        hyperparameters = hyperparameters or self.hyperparameters
         if not self.solver_process:
-            self._create_solver_process(self.problem, target_cost, backend,
+            self._create_solver_process(self.problem,
+                                        target_cost,
+                                        backend,
                                         hyperparameters)
-        if backend in CPUS:
-            pdict = {self.solver_process: self.solver_model,
-                     ReadGate: ReadGatePyModel,
-                     Dense: PyDenseModelFloat,
-                     StochasticIntegrateAndFire: StochasticIntegrateAndFireModel
-                     }
-            run_cfg = Loihi1SimCfg(exception_proc_model_map=pdict,
-                                   select_sub_proc_model=True)
-        elif backend in NEUROCORES:
-            pdict = {self.solver_process: self.solver_model,
-                     ReadGate: ReadGateCModel,
-                     Dense: NcModelDense,
-                     StochasticIntegrateAndFire:
-                         StochasticIntegrateAndFireModelSCIF,
-                     QuboScif: NcModelQuboScif,
-                     }
-            run_cfg = Loihi2HwCfg(exception_proc_model_map=pdict,
-                                  select_sub_proc_model=True)
-        else:
-            raise NotImplementedError(str(backend) + backend_msg)
+        run_cfg = self._get_run_config(backend)
+        run_condition = self._get_run_condition(timeout)
         self.solver_process._log_config.level = 20
-        self.solver_process.run(
-            condition=RunContinuous()
-            if timeout == -1
-            else RunSteps(num_steps=timeout + 1),
-            run_cfg=run_cfg,
-        )
+        self.solver_process.run(condition=run_condition,
+                                run_cfg=run_cfg)
         if timeout == -1:
             self.solver_process.wait()
-        solution = self.solver_process.variable_assignment.aliased_var.get()
+        self._update_report(target_cost=target_cost)
         self.solver_process.stop()
-        return solution
+        return self._report["best_state"]
+
+    def _update_report(self,
+                       target_cost=None):
+        self._report["target_cost"] = target_cost
+        best_state = self.solver_process.variable_assignment.aliased_var.get()
+        self._report["best_state"] = best_state
+        raw_cost = self.solver_process.optimality.aliased_var.get()
+        cost = (raw_cost.astype(np.int32) << 8) >> 8
+        self._report["cost"] = cost
+        self._report["solved"] = cost == target_cost
+        steps_to_solution = self.solver_process.solution_step.get()
+        self._report["steps_to_solution"] = steps_to_solution
+        time_to_solution = None  # self.benchmarker.measured_time
+        power_to_solution = None  # self.behchmarker.measured_power
+        self._report["time_to_solution"] = time_to_solution
+        self._report["power_to_solution"] = power_to_solution
+        print(self._report)
 
     def _create_solver_process(self,
                                problem: OptimizationProblem,
@@ -208,6 +233,41 @@ class OptimizationSolver:
             return [Loihi2NeuroCore], protocol
         else:
             raise NotImplementedError(str(backend) + backend_msg)
+
+    def _get_run_config(self, backend):
+        if backend in CPUS:
+            pdict = {self.solver_process: self.solver_model,
+                     ReadGate: ReadGatePyModel,
+                     Dense: PyDenseModelFloat,
+                     StochasticIntegrateAndFire: StochasticIntegrateAndFireModel
+                     }
+            run_cfg = Loihi1SimCfg(exception_proc_model_map=pdict,
+                                   select_sub_proc_model=True)
+        elif backend in NEUROCORES:
+            pdict = {self.solver_process: self.solver_model,
+                     ReadGate: ReadGateCModel,
+                     Dense: NcModelDense,
+                     StochasticIntegrateAndFire:
+                         StochasticIntegrateAndFireModelSCIF,
+                     QuboScif: NcModelQuboScif,
+                     }
+            run_cfg = Loihi2HwCfg(exception_proc_model_map=pdict,
+                                  select_sub_proc_model=True)
+        else:
+            raise NotImplementedError(str(backend) + backend_msg)
+        return run_cfg
+
+    def _validated_cost(self, target_cost):
+        if target_cost % int(target_cost) != 0:
+            raise ValueError(f"target_cost has to be an integer, received "
+                             f"{target_cost}")
+        return int(target_cost)
+
+    def _get_run_condition(self, timeout):
+        if timeout == -1:
+            return RunContinuous()
+        else:
+            return RunSteps(num_steps=timeout + 1)
 
 
 # TODO throw an error if L2 is not present and the user tries to use it.

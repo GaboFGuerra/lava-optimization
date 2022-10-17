@@ -24,6 +24,7 @@ class SolutionReadoutPyModel(PyLoihiProcessModel):
     will request the runtime service to pause execution.
     """
     solution: np.ndarray = LavaPyType(np.ndarray, np.int32, 32)
+    solution_step: np.ndarray = LavaPyType(np.ndarray, np.int32, 32)
     read_solution: PyInPort = LavaPyType(PyInPort.VEC_DENSE, np.int32,
                                          precision=32)
     cost_in: PyInPort = LavaPyType(PyInPort.VEC_DENSE, np.int32, precision=32)
@@ -32,7 +33,7 @@ class SolutionReadoutPyModel(PyLoihiProcessModel):
     target_cost: int = LavaPyType(int, np.int32, 32)
     acknowledgemet: PyOutPort = LavaPyType(PyOutPort.VEC_DENSE, np.int32,
                                            precision=32)
-    min_cost: int = None
+    min_cost: int = LavaPyType(int, np.int32, 32)
 
     def post_guard(self):
         """Decide whether to run post management phase."""
@@ -47,22 +48,26 @@ class SolutionReadoutPyModel(PyLoihiProcessModel):
         """Execute spiking phase, integrate input, update dynamics and send
         messages out."""
         raw_cost = self.cost_in.recv()
+        print(f"Host: received raw cost: {raw_cost} \n")
         self.acknowledgemet.send(np.asarray([1]))
         req_stop = self.req_stop_in.recv()
         self.acknowledgemet.send(np.asarray([1]))
         cost = [0]
         if raw_cost[0]:
             cost = (raw_cost.astype(np.int32) << 8) >> 8
+            print(f"Host: received decoded cost: {raw_cost} \n")
         if cost[0]:
             raw_solution = self.read_solution.recv()
             self.solution[:] = (raw_solution.astype(np.int32) << 16) >> 16
             self.min_cost = cost[0]
-            if not req_stop[0]:
+            if req_stop[0]!=0:
                 print(f"Host: received a better solution: "
                       f"{self.solution} at "
                       f"step"
                       f" {self.time_step}")
-        if req_stop[0]:
+                if req_stop[0]!=0:
+                    self.solution_step[:] = req_stop
+        if req_stop[0]==0:
             self._req_pause = True
 
     def run_post_mgmt(self):

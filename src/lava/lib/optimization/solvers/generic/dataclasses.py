@@ -89,6 +89,11 @@ class MacroStateReader:
     cost_convergence_check: CostConvergenceChecker = None
     sat_convergence_check: SatConvergenceChecker = None
 
+
+    @property
+    def solution_step(self):
+        return self.solution_readout.solution_step
+
     @property
     def cost_in(self):
         return self.cost_convergence_check.cost_components
@@ -103,7 +108,7 @@ class MacroStateReader:
 
     @property
     def min_cost(self):
-        return self.cost_convergence_check.min_cost
+        return self.solution_readout.min_cost
 
     @property
     def satisfaction(self):

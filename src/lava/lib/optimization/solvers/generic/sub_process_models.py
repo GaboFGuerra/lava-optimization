@@ -58,7 +58,7 @@ class DiscreteVariablesModel(AbstractSubProcessModel):
         noise_amplitude = proc.hyperparameters.get("noise_amplitude", 1)
         steps_to_fire = proc.hyperparameters.get("steps_to_fire", 10)
         init_value = proc.hyperparameters.get("init_value", np.zeros(shape))
-        init_state = proc.hyperparameters.get("init_value", np.zeros(shape))
+        init_state = proc.hyperparameters.get("init_state", np.zeros(shape))
         self.s_bit = StochasticIntegrateAndFire(step_size=step_size,
                                                 init_state=init_state,
                                                 shape=shape,

@@ -68,7 +68,9 @@ class QUBO(OptimizationProblem):
         vector x as: minimize x^T*Q*x.
         """
         super().__init__()
+        #todo check dtype of q and convert to int if necessary
         self.validate_input(q)
+        self.q = q
         self._q_cost = Cost(q)
         self._b_variables = DiscreteVariables(domains=[2] * q.shape[0])
 
@@ -76,6 +78,10 @@ class QUBO(OptimizationProblem):
     def variables(self):
         """Binary variables of the QUBO problem."""
         return self._b_variables
+
+    @property
+    def num_variables(self):
+        return self.variables.num_variables
 
     @property
     def cost(self):
@@ -111,6 +117,23 @@ class QUBO(OptimizationProblem):
 
     def verify_solution(self, solution):
         raise NotImplementedError
+
+    def compute_cost(self, state_vector):
+        """Based on a given solution, returns the value of the cost function.
+
+        Parameters
+        ----------
+        state_vector : Array[binary]
+            Array containing an assignment to the problem variables.
+
+        Returns
+        -------
+        float
+            Cost of the given state vector.
+        """
+
+        return state_vector.T @ self.q @ state_vector
+
 
 
 DType = ty.Union[ty.List[int], ty.List[ty.Tuple]]
