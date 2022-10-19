@@ -34,6 +34,8 @@ class SolutionReadoutPyModel(PyLoihiProcessModel):
     acknowledgemet: PyOutPort = LavaPyType(PyOutPort.VEC_DENSE, np.int32,
                                            precision=32)
     min_cost: int = LavaPyType(int, np.int32, 32)
+    costs: list = []
+    solutions: list = []
 
     def post_guard(self):
         """Decide whether to run post management phase."""
@@ -41,6 +43,7 @@ class SolutionReadoutPyModel(PyLoihiProcessModel):
             if self.min_cost <= self.target_cost:
                 print("Host: LMT notified network reached target cost:",
                       self.min_cost)
+                print("Costs data:",self.costs)
                 return True
         return False
 
@@ -60,6 +63,7 @@ class SolutionReadoutPyModel(PyLoihiProcessModel):
             raw_solution = self.read_solution.recv()
             self.solution[:] = (raw_solution.astype(np.int32) << 16) >> 16
             self.min_cost = cost[0]
+            self.costs.append((self.min_cost, req_stop[0]))
             if req_stop[0]!=0:
                 print(f"Host: received a better solution: "
                       f"{self.solution} at "
