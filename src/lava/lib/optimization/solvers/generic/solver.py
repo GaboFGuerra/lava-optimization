@@ -106,7 +106,6 @@ class OptimizationSolver:
     @property
     def measured_time(self):
         sts = self.last_run_report['steps_to_solution']
-        print("DEBUG", sts)
         print(f"{self._benchmarker.measured_time.sum()=}")
         print(f"{repr(self._benchmarker.measured_time)=}")
         import matplotlib.pyplot as plt
