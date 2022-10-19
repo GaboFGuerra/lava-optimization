@@ -24,13 +24,7 @@ from lava.magma.compiler.subcompilers.constants import \
     MAX_EMBEDDED_CORES_PER_CHIP
 from lava.magma.core.run_configs import Loihi2SimCfg, Loihi2HwCfg
 from lava.magma.core.run_conditions import RunSteps
-
-if Loihi2.is_loihi2_available:
-    print(f'Running on {Loihi2.partition}')
-    from lava.utils import loihi2_profiler
-else:
-    RuntimeError("Loihi2 compiler is not available in this system. "
-            "Problem benchmarking cannot proceed.")
+from lava.utils import loihi2_profiler
 
 class SolverBenchmarker():
     """Measure power and execution time for an optimization solver."""
@@ -38,7 +32,7 @@ class SolverBenchmarker():
         self._power_logger = None
         self._time_logger = None
                        
-    def get_power_measurement_cfg(self, board, num_steps):
+    def get_power_measurement_cfg(self, num_steps):
         """The profiler tools can be enabled on the Loihi 2 system
         as the workload runs through pre_run_fxs and post_run_fxs
         which are used to attach the profiling tools."""
@@ -52,8 +46,9 @@ class SolverBenchmarker():
         ]
         return pre_run_fxs, post_run_fxs
 
-    def get_time_measurement_cfg(self, board):
-        self._time_logger = loihi2_profiler.Loihi2ExecutionTime()
+    def get_time_measurement_cfg(self, num_steps):
+        self._time_logger = loihi2_profiler.Loihi2ExecutionTime(
+            buffer_size=num_steps)
         pre_run_fxs = [
             lambda board: self._time_logger.attach(board),
         ]
@@ -71,7 +66,7 @@ class SolverBenchmarker():
 
     @property
     def measured_time(self):
-        return self._time_logger.time_per_step.sum()
+        return self._time_logger.time_per_step
 
 
     def plot_power_data(self):
