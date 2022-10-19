@@ -104,6 +104,22 @@ class OptimizationSolver:
         self._benchmarker = SolverBenchmarker()
 
     @property
+    def measured_time(self):
+        sts = self.last_run_report['steps_to_solution']
+        print("DEBUG", sts)
+        print(f"{self._benchmarker.measured_time.sum()=}")
+        print(f"{repr(self._benchmarker.measured_time)=}")
+        import matplotlib.pyplot as plt
+        plt.plot(self._benchmarker.measured_time)
+        plt.show()
+        if sts:
+            return self._benchmarker.measured_time[:int(sts)].sum()
+        else:
+            print("No solution was found, returning total runtime for total "
+                  "number of steps.")
+            return self._benchmarker.measured_time.sum()
+
+    @property
     def run_cfg(self):
         """Run configuration for process model selection."""
         return self._run_cfg
@@ -166,7 +182,8 @@ class OptimizationSolver:
                                         target_cost,
                                         backend,
                                         hyperparameters)
-        run_cfg = self._get_run_config(backend, measure_time, measure_power)
+        run_cfg = self._get_run_config(backend, measure_time, measure_power,
+                                       timeout)
         run_condition = self._get_run_condition(timeout)
         self.solver_process._log_config.level = 20
         self.solver_process.run(condition=run_condition,
@@ -241,7 +258,7 @@ class OptimizationSolver:
         else:
             raise NotImplementedError(str(backend) + backend_msg)
 
-    def _get_run_config(self, backend, measure_time, measure_power):
+    def _get_run_config(self, backend, measure_time, measure_power, timeout):
         do_benchmark = measure_time or measure_power
         if backend in CPUS:
             pdict = {self.solver_process: self.solver_model,
@@ -259,21 +276,25 @@ class OptimizationSolver:
                          StochasticIntegrateAndFireModelSCIF,
                      QuboScif: NcModelQuboScif,
                      }
-            pre_run_fxs, post_run_fxs = None, None
+            pre_run_fxs, post_run_fxs = [], []
             if do_benchmark:
-                board = None
+                if timeout == -1:
+                    raise ValueError("For energy or time measurements timeout "
+                                     "cannot be -1")
                 if measure_power:
                     pre_run_fxs, post_run_fxs = \
-                        self._benchmarker.get_power_measurement_cfg(board,
-                                                                    num_steps=timeout)
+                        self._benchmarker.get_power_measurement_cfg(num_steps=
+                                                                    timeout + 1)
                 elif measure_time:
                     pre_run_fxs, post_run_fxs = \
-                        self._benchmarker.get_time_measurement_cfg(board)
+                        self._benchmarker.get_time_measurement_cfg(
+                            num_steps=timeout + 1)
 
             run_cfg = Loihi2HwCfg(exception_proc_model_map=pdict,
                                   select_sub_proc_model=True,
                                   pre_run_fxs=pre_run_fxs,
-                                  post_run_fxs=post_run_fxs)
+                                  post_run_fxs=post_run_fxs
+                                  )
         else:
             raise NotImplementedError(str(backend) + backend_msg)
         return run_cfg
@@ -305,3 +326,4 @@ These can be specified by calling solve with any of the following:
 The explicit resource classes can be imported from
 lava.magma.core.resources
 """
+
