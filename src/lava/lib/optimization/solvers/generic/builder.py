@@ -138,49 +138,48 @@ class SolverProcessBuilder:
 			level of noise.
 		"""
 
-		def constructor(self,
-						hyperparameters: ty.Dict[
-							str, ty.Union[int, npt.ArrayLike]],
-						name: ty.Optional[str] = None,
-						log_config: ty.Optional[LogConfig] = None) -> None:
-			super(type(self), self).__init__(hyperparameters=hyperparameters,
-											 name=name,
-											 log_config=log_config)
-			self.problem = problem
-			self.hyperparameters = hyperparameters
-			if not hasattr(problem, "variables"):
-				raise Exception(
-						"An optimization problem must contain " "variables."
-						)
-			if hasattr(problem.variables, "continuous") or isinstance(
-					problem.variables, ContinuousVariables
-					):
-				self.continuous_variables = Var(
-						shape=(problem.variables.continuous.num_vars, 2)
-						)
-			if hasattr(problem.variables, "discrete") or isinstance(
-					problem.variables, DiscreteVariables
-					):
-				self.discrete_variables = Var(
-						shape=(
-								problem.variables.num_variables,
-								# problem.variables.domain_sizes[0]
-								)
-						)
-			self.cost_diagonal = None
-			if hasattr(problem, "cost"):
-				mrcv = SolverProcessBuilder._map_rank_to_coefficients_vars
-				self.cost_coefficients = mrcv(problem.cost.coefficients)
-				self.cost_diagonal = problem.cost.coefficients[
-					2].diagonal()
-			self.variable_assignment = Var(
-					shape=(problem.variables.num_variables,)
-					)
-			self.optimality = Var(shape=(2,))
-			self.feasibility = Var(shape=(1,))
-			self.solution_step = Var(shape=(1,))
-			self.finders = None
-
+        def constructor(self,
+                        hyperparameters: ty.Dict[
+                            str, ty.Union[int, npt.ArrayLike]],
+                        name: ty.Optional[str] = None,
+                        log_config: ty.Optional[LogConfig] = None) -> None:
+            super(type(self), self).__init__(hyperparameters=hyperparameters,
+                                             name=name,
+                                             log_config=log_config)
+            self.problem = problem
+            self.hyperparameters = hyperparameters
+            if not hasattr(problem, "variables"):
+                raise Exception(
+                    "An optimization problem must contain " "variables."
+                )
+            if hasattr(problem.variables, "continuous") or isinstance(
+                    problem.variables, ContinuousVariables
+            ):
+                self.continuous_variables = Var(
+                    shape=(problem.variables.continuous.num_vars, 2)
+                )
+            if hasattr(problem.variables, "discrete") or isinstance(
+                    problem.variables, DiscreteVariables
+            ):
+                self.discrete_variables = Var(
+                    shape=(
+                        problem.variables.num_variables,
+                        # problem.variables.domain_sizes[0]
+                    )
+                )
+            self.cost_diagonal = None
+            if hasattr(problem, "cost"):
+                mrcv = SolverProcessBuilder._map_rank_to_coefficients_vars
+                self.cost_coefficients = mrcv(problem.cost.coefficients)
+                self.cost_diagonal = problem.cost.coefficients[
+                    2].diagonal()
+            self.variable_assignment = Var(
+                shape=(problem.variables.num_variables,)
+            )
+            self.optimality = Var(shape=(1,))
+            self.feasibility = Var(shape=(1,))
+            self.solution_step = Var(shape=(1,))
+            self.cost_monitor = Var(shape=(1,))
 		self._process_constructor = constructor
 
 	def _create_model_constructor(self, target_cost: int):

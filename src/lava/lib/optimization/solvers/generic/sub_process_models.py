@@ -125,11 +125,12 @@ class CostConvergenceCheckerModel(AbstractSubProcessModel):
 		# Connect the parent InPort to the InPort of the Dense child-Process.
 		proc.in_ports.cost_components.connect(self.dense.in_ports.s_in)
 
-		# Connect the OutPort of the LIF child-Process to the OutPort of the
-		# parent Process.
-		self.cost_integrator.out_ports.update_buffer.connect(
-				proc.out_ports.update_buffer)
-		proc.vars.min_cost.alias(self.cost_integrator.vars.min_cost)
+        # Connect the OutPort of the LIF child-Process to the OutPort of the
+        # parent Process.
+        self.cost_integrator.out_ports.update_buffer.connect(
+            proc.out_ports.update_buffer)
+        proc.vars.min_cost.alias(self.cost_integrator.vars.min_cost)
+        proc.vars.cost.alias(self.cost_integrator.vars.cost)
 
 
 @implements(proc=StochasticIntegrateAndFire, protocol=LoihiProtocol)

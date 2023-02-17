@@ -3,6 +3,7 @@
 # See: https://spdx.org/licenses/
 import typing as ty
 from dataclasses import dataclass
+from lava.proc.monitor.process import Monitor
 from lava.utils.profiler import Profiler
 
 import numpy.typing as npt
@@ -23,12 +24,16 @@ from lava.magma.core.resources import (
     Loihi2NeuroCore,
     NeuroCore,
 )
-from lava.magma.core.run_conditions import RunContinuous, RunSteps
+from lava.magma.core.run_conditions import RunSteps
 from lava.magma.core.run_configs import Loihi1SimCfg, Loihi2HwCfg
 from lava.magma.core.sync.protocol import AbstractSyncProtocol
 from lava.magma.core.sync.protocols.loihi_protocol import LoihiProtocol
 from lava.proc.dense.models import PyDenseModelFloat
 from lava.proc.dense.process import Dense
+from lava.utils.loihi2_state_probes import StateProbe
+
+from lava.lib.optimization.solvers.generic.read_gate.models import \
+    ReadGatePyModel
 
 from lava.lib.optimization.solvers.generic.read_gate.process import ReadGate
 from lava.lib.optimization.solvers.generic.scif.models import BoltzmannFixed, \
@@ -87,7 +92,8 @@ class SolverConfig:
     timeout: int = 1e3
     target_cost: int = 0
     backend: BACKENDS = CPU
-    hyperparameters: ty.Union[ty.Dict, ty.List[ty.Dict]] = None
+    hyperparameters: dict = None
+    probe_cost: bool = False
     probe_time: bool = False
     probe_energy: bool = False
     log_level: int = 40
@@ -114,9 +120,19 @@ class SolverReport:
     best_cost: int = None
     best_state: np.ndarray = None
     best_timestep: int = None
+    cost_timeseries: np.ndarray = None
     solver_config: SolverConfig = None
     profiler: Profiler = None
 
+    def plot_cost_timeseries(self, filename: str = None) -> None:
+        if self.cost_timeseries is None:
+            return NotImplemented  # what to do?
+        from matplotlib import pyplot as plt
+        plt.plot(self.cost_timeseries, "ro")
+        if filename is None:
+            plt.show()
+        else:
+            plt.savefig(filename)
 
 def solve(problem: OptimizationProblem,
           config: SolverConfig = SolverConfig()) -> np.ndarray:
@@ -164,6 +180,7 @@ class OptimizationSolver:
         self.solver_process = None
         self.solver_model = None
         self._profiler = None
+        self._cost_tracker = None
 
     def solve(self, config: SolverConfig = SolverConfig()) -> SolverReport:
         """
@@ -189,21 +206,28 @@ class OptimizationSolver:
             raw_solution &= 0x3F
             best_state = (raw_solution.astype(np.int8) >> 5)
         self.solver_process.stop()
+        cost_timeseries = self._get_cost_tracking()
         report = SolverReport(
             best_cost=best_cost,
             best_state=best_state,
             best_timestep=best_timestep,
             solver_config=config,
-            profiler=self._profiler
+            profiler=self._profiler,
+            cost_timeseries=cost_timeseries
         )
         return report
 
     def _prepare_solver(self, config: SolverConfig):
-        hyperparameters=config.hyperparameters
-        sconfig.num_in_ports = len(hyperparameters) if type(hyperparameters) \
-                                                       is list else 1
+        if config.probe_cost:
+            if config.backend == "Loihi2":
+                self._cost_tracker = StateProbe(self.solver_process.optimality)
+            if config.backend == "CPU":
+                self._cost_tracker = Monitor()
+                self._cost_tracker.probe(target=self.solver_process.optimality,
+                                         num_steps=config.timeout)
         self._create_solver_process(config=config)
-        run_cfg = self._get_run_config(backend=config.backend)
+        run_cfg = self._get_run_config(backend=config.backend,
+                                       probes=[self._cost_tracker])
         run_condition = RunSteps(num_steps=config.timeout)
         self._prepare_profiler(config=config, run_cfg=run_cfg)
         return run_condition, run_cfg
@@ -247,7 +271,14 @@ class OptimizationSolver:
         """
         return [CPU] if backend in CPUS else [Loihi2NeuroCore], LoihiProtocol
 
-    def _get_run_config(self, backend: BACKENDS):
+    def _get_cost_tracking(self):
+        if type(self._cost_tracker) is Monitor:
+            return self._cost_tracker.get_data()[self.solver_process.name][
+                self.solver_process.optimality.name].T.astype(np.int32)
+        elif type(self._cost_tracker) is StateProbe:
+            return self._cost_tracker.time_series
+
+    def _get_run_config(self, backend: BACKENDS, probes=None):
         if backend in CPUS:
             from lava.lib.optimization.solvers.generic.read_gate.models import ReadGatePyModel
             pdict = {self.solver_process: self.solver_model,
@@ -266,7 +297,9 @@ class OptimizationSolver:
                          BoltzmannAbstractModel,
                      }
             return Loihi2HwCfg(exception_proc_model_map=pdict,
-                               select_sub_proc_model=True)
+                               select_sub_proc_model=True,
+                               callback_fxs=probes
+                               )
         else:
             raise NotImplementedError(str(backend) + BACKEND_MSG)
 
